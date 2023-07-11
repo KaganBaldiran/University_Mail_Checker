@@ -9,11 +9,14 @@ import org.openqa.selenium.chrome.ChromeOptions;
 import javax.swing.*;
 import java.awt.*;
 import java.io.IOException;
+import java.net.URL;
+import java.net.URLConnection;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.List;
+import java.util.Vector;
 import java.util.concurrent.ThreadLocalRandom;
 
 import static java.lang.System.exit;
@@ -27,121 +30,164 @@ public class WebHandler
 
     public static void SendMeDailyPosts()
     {
+        boolean IsConnected = false;
+
         Thread LoadingThread = new Thread(new LoadingDialog());
         LoadingThread.start();
 
-        ChromeOptions options = new ChromeOptions();
-        options.addArguments("--headless");
+        try {
+            URL GoogleURL = new URL("http://www.google.com");
+            URLConnection GoogleConnection = GoogleURL.openConnection();
+            GoogleConnection.connect();
+            System.out.println("Connected to internet");
+            IsConnected = true;
+        } catch (IOException e) {
+            System.out.println("No internet connection available");
+        }
 
-        WebDriver driver = new ChromeDriver(options);
-        WebDriver driver2 = new ChromeDriver(options);
+        if(IsConnected) {
+            ChromeOptions options = new ChromeOptions();
+            options.addArguments("--headless");
 
-        //WebDriver driver = new ChromeDriver();
-        //WebDriver driver2 = new ChromeDriver();
+            WebDriver driver = new ChromeDriver(options);
+            WebDriver driver2 = new ChromeDriver(options);
 
-        EnterCredentials(driver);
+            Vector<String> AttachmentLinks = new Vector<>();
+            Vector<WebDriver> AttachmentDrivers = new Vector<>();
 
-        driver.manage().timeouts().implicitlyWait(Duration.ofMillis(500));
+            EnterCredentials(driver);
 
-        WebElement element = driver.findElement(By.id("messagelist"));
+            driver.manage().timeouts().implicitlyWait(Duration.ofMillis(500));
 
-        List<WebElement> emails = element.findElements(By.className("unread"));
+            WebElement element = driver.findElement(By.id("messagelist"));
 
-        StringBuilder final_mails = new StringBuilder();
+            List<WebElement> emails = element.findElements(By.className("unread"));
 
-        if(emails.size() != 0)
-        {
-            String Last_URL;
-            String MailContent = null;
+            StringBuilder final_mails = new StringBuilder();
 
-            boolean first = true;
+            if (emails.size() != 0) {
+                String Last_URL;
+                String MailContent = null;
 
-            for (WebElement mail : emails) {
-                driver.manage().timeouts().implicitlyWait(Duration.ofMillis(2000));
-                String Text = mail.getAttribute("innerText");
-                MailContent = null;
+                boolean first = true;
 
-                if (!Text.isEmpty()) {
-                    System.out.println(Text);
+                for (WebElement mail : emails) {
+                    driver.manage().timeouts().implicitlyWait(Duration.ofMillis(2000));
+                    String Text = mail.getAttribute("innerText");
+                    MailContent = null;
 
-                    WebElement mailLink = mail.findElement(By.tagName("a"));
-                    String hrefValue = mailLink.getAttribute("href");
+                    boolean ThereIsAttachment = true;
+                    List<WebElement> AttachmentList = null;
 
-                    if (first) {
+                    if (!Text.isEmpty()) {
+                        System.out.println(Text);
 
-                        EnterCredentials(driver2);
+                        WebElement mailLink = mail.findElement(By.tagName("a"));
+                        String hrefValue = mailLink.getAttribute("href");
 
-                        first = false;
+                        if (first) {
+
+                            EnterCredentials(driver2);
+
+                            first = false;
+                        }
+                        driver2.get(hrefValue);
+                        driver2.manage().timeouts().implicitlyWait(Duration.ofMillis(500));
+
+                        try {
+                            AttachmentList = driver2.findElements(By.className("attachmentslist"));
+                        } catch (Exception e) {
+                            ThereIsAttachment = false;
+                        }
+
+                        if (ThereIsAttachment) {
+                            for (WebElement Attachment : AttachmentList) {
+                                System.out.println("ATTACHMENT LINK: " + Attachment.findElement(By.className("filename")).getAttribute("href"));
+                                AttachmentLinks.add(Attachment.findElement(By.className("filename")).getAttribute("href"));
+
+
+                                final_mails.append(Attachment.findElement(By.className("filename")).getAttribute("href")).append("\n");
+                            }
+                        }
+
+                        System.out.println(hrefValue);
+
+                        MailContent = driver2.findElement(By.id("message-content")).getAttribute("innerText");
+                        System.out.println(MailContent);
+
                     }
-                    driver2.get(hrefValue);
-                    driver2.manage().timeouts().implicitlyWait(Duration.ofMillis(500));
-                    System.out.println(hrefValue);
+                    final_mails.append(Text).append("\n");
 
-                    MailContent = driver2.findElement(By.id("message-content")).getAttribute("innerText");
-                    System.out.println(MailContent);
+                    if (MailContent != null) {
+                        final_mails.append(MailContent).append("\n").append("\n").append("\n").append("\n").append("\n").append("\n").append("\n");
+                    }
+
 
                 }
-                final_mails.append(Text).append("\n");
+                System.out.println("SIZE: " + emails.size());
 
-                if (MailContent != null) {
-                    final_mails.append(MailContent).append("\n").append("\n").append("\n").append("\n").append("\n").append("\n").append("\n");
+                Path path = Paths.get("DailyUnreadMails.txt");
+
+                try {
+                    Files.write(path, final_mails.toString().getBytes());
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
                 }
 
+                driver2.quit();
+                driver.quit();
 
-            }
-            System.out.println("SIZE: " + emails.size());
+                LoadingThread.interrupt();
 
-            Path path = Paths.get("DailyUnreadMails.txt");
+                try {
+                    Desktop.getDesktop().open(path.toFile());
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
 
-            try {
-                Files.write(path, final_mails.toString().getBytes());
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            }
+                for (int i = 0; i < AttachmentLinks.size(); i++) {
 
-            driver2.quit();
-            driver.quit();
+                    AttachmentDrivers.get(i).get(AttachmentLinks.get(i));
+                }
 
-            LoadingThread.interrupt();
+            } else {
+                driver2.quit();
+                driver.quit();
 
-            try {
-                Desktop.getDesktop().open(path.toFile());
-            } catch (IOException e) {
-                e.printStackTrace();
+                LoadingThread.interrupt();
+
+                String[] noNewMailMessages = {
+                        "No new mail. Enjoy your day!",
+                        "You're all caught up. No new messages.",
+                        "Inbox empty. Nothing new to read.",
+                        "No unread emails. Keep up the good work!",
+                        "Great news! Your inbox is clear.",
+                        "No new mail. Take a break and relax.",
+                        "Congratulations! Zero unread emails.",
+                        "No new messages. Take a moment to breathe.",
+                        "Inbox up to date. No new emails found.",
+                        "No unread emails. Keep up the productivity!",
+                        "All clear! No new messages in your inbox.",
+                        "No new mail. Time for a well-deserved break!",
+                        "Nothing new to report. Inbox empty.",
+                        "No unread emails. Enjoy the peace and quiet.",
+                        "Zero new messages. Keep up the good habits!",
+                        "No new mail. Take a moment for yourself.",
+                        "Inbox empty. No new messages to read.",
+                        "No new emails. Enjoy the clutter-free inbox!",
+                        "No unread messages. Time for a celebration!",
+                        "No new mail. Stay focused and keep it up!"
+                };
+
+                JOptionPane.showMessageDialog(null, noNewMailMessages[ThreadLocalRandom.current().nextInt(0, 20)], "Mail state", JOptionPane.INFORMATION_MESSAGE);
+
+                exit(1);
             }
         }
-        else
-        {
-            driver2.quit();
-            driver.quit();
+        else {
 
             LoadingThread.interrupt();
-
-            String[] noNewMailMessages = {
-                    "No new mail. Enjoy your day!",
-                    "You're all caught up. No new messages.",
-                    "Inbox empty. Nothing new to read.",
-                    "No unread emails. Keep up the good work!",
-                    "Great news! Your inbox is clear.",
-                    "No new mail. Take a break and relax.",
-                    "Congratulations! Zero unread emails.",
-                    "No new messages. Take a moment to breathe.",
-                    "Inbox up to date. No new emails found.",
-                    "No unread emails. Keep up the productivity!",
-                    "All clear! No new messages in your inbox.",
-                    "No new mail. Time for a well-deserved break!",
-                    "Nothing new to report. Inbox empty.",
-                    "No unread emails. Enjoy the peace and quiet.",
-                    "Zero new messages. Keep up the good habits!",
-                    "No new mail. Take a moment for yourself.",
-                    "Inbox empty. No new messages to read.",
-                    "No new emails. Enjoy the clutter-free inbox!",
-                    "No unread messages. Time for a celebration!",
-                    "No new mail. Stay focused and keep it up!"
-            };
-
-            JOptionPane.showMessageDialog(null , noNewMailMessages[ThreadLocalRandom.current().nextInt(0,20)], "Mail state" , JOptionPane.INFORMATION_MESSAGE );
-
+            JOptionPane.showMessageDialog(null, "No internet connection available!", "Connection Error", JOptionPane.ERROR_MESSAGE);
             exit(1);
         }
 
@@ -239,8 +285,9 @@ public class WebHandler
         }
 
         @Override
-        public void run() {
-            JOptionPane.showOptionDialog(null, CurrentMessage ,"Process" , JOptionPane.DEFAULT_OPTION,JOptionPane.PLAIN_MESSAGE, null, new Object[]{}, null);
+        public void run()
+        {
+                JOptionPane.showOptionDialog(null, CurrentMessage ,"Process" , JOptionPane.DEFAULT_OPTION,JOptionPane.PLAIN_MESSAGE, null, new Object[]{}, null);
         }
     }
 
